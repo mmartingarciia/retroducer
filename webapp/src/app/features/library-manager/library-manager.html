@@ -1,0 +1,91 @@
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-success text-white">
+        <h5 class="mb-0"><i class="bi bi-spotify"></i> Spotify Import (Metadata)</h5>
+    </div>
+    <div class="card-body">
+        <div class="row g-2">
+            <div class="col-md-3">
+                <input type="text" class="form-control form-control-sm" placeholder="Client ID"
+                    [(ngModel)]="spotifyClientId">
+            </div>
+            <div class="col-md-3">
+                <input type="password" class="form-control form-control-sm" placeholder="Client Secret"
+                    [(ngModel)]="spotifyClientSecret">
+            </div>
+            <div class="col-md-4">
+                <input type="text" class="form-control form-control-sm" placeholder="Playlist Link or ID"
+                    [(ngModel)]="spotifyPlaylistId">
+            </div>
+            <div class="col-md-2">
+                <button class="btn btn-success btn-sm w-100" (click)="fetchSpotifyPlaylist()">
+                    Fetch List
+                </button>
+            </div>
+        </div>
+        <div *ngIf="spotifyTracks.length > 0" class="mt-3">
+            <h6 class="text-muted">Playlist Target: {{ spotifyTracks.length }} songs</h6>
+            <div class="progress mb-2" style="height: 10px;">
+                <div class="progress-bar bg-success" [style.width.%]="matchPercentage"></div>
+            </div>
+            <small class="text-muted">Select local MP3s to match this list.</small>
+        </div>
+    </div>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">Local Library</h5>
+        <div>
+            <input type="text" class="form-control form-control-sm d-inline-block me-2" style="width: 120px;"
+                placeholder="ESP IP" [(ngModel)]="espIp">
+            <input type="file" #fileInput multiple (change)="onFilesSelected($event)" accept="audio/mp3, audio/mpeg"
+                hidden>
+            <button class="btn btn-outline-light btn-sm me-2" (click)="fileInput.click()">
+                <i class="bi bi-music-note-beamed"></i> Add MP3s
+            </button>
+            <button class="btn btn-primary btn-sm" (click)="uploadAll()" [disabled]="songs.length === 0">
+                Sync to ESP32
+            </button>
+        </div>
+    </div>
+    <div class="card-body p-0 song-list">
+        <table class="table table-hover mb-0 align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th style="width: 60px">Cover</th>
+                    <th>Title</th>
+                    <th>Artist</th>
+                    <th>Match</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr *ngFor="let song of songs">
+                    <td>
+                        <img [src]="song.cover || 'assets/default-art.png'" class="cover-img bg-secondary" alt="art">
+                    </td>
+                    <td>
+                        <div class="fw-bold">{{ song.title }}</div>
+                        <div class="small text-muted">{{ song.album }}</div>
+                    </td>
+                    <td>{{ song.artist }}</td>
+                    <td>
+                        <span *ngIf="song.matchedSpotifyId" class="badge bg-success"
+                            title="Matched to Spotify Playlist"><i class="bi bi-check"></i></span>
+                    </td>
+                    <td>
+                        <span class="badge"
+                            [ngClass]="{'bg-secondary': song.status === 'pending', 'bg-success': song.status === 'done', 'bg-warning': song.status === 'uploading', 'bg-danger': song.status === 'error'}">
+                            {{ song.status }} <span *ngIf="song.status === 'uploading'">{{ song.progress }}%</span>
+                        </span>
+                    </td>
+                </tr>
+                <tr *ngIf="songs.length === 0">
+                    <td colspan="5" class="text-center py-5 text-muted">
+                        No music added. Click "Add MP3s" to select files.
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
