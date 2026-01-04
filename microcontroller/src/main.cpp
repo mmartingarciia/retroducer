@@ -23,6 +23,12 @@ Audio audio;
 #define I2S_LRC 26
 #define I2S_DOUT 25
 
+// Status LEDs
+#define LED_BLUE 2   // Upload (Built-in)
+#define LED_GREEN 4  // Status (External)
+
+unsigned long greenLedTimer = 0;
+
 // * --- Helper Functions ---
 // --- WiFi Access Point Setup ---
 void setupWiFi() {
@@ -57,6 +63,10 @@ void setupAudio() {
 void setupServer() {
     // Basic Status Endpoint
     server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest *request){
+        // Blink Green LED (Non-blocking trigger)
+        digitalWrite(LED_GREEN, HIGH);
+        greenLedTimer = millis() + 2000; // Keep ON for 200ms
+
         DynamicJsonDocument doc(256);
         doc["status"] = "online";
         doc["ip"] = WiFi.softAPIP().toString();
@@ -77,6 +87,7 @@ void setupServer() {
         if(!index){
             String path = "/" + filename;
             Serial.printf("Upload Start: %s\n", path.c_str());
+            digitalWrite(LED_BLUE, HIGH); // Turn Blue LED ON
             
             // Check if SD is available
             if(!SD.exists("/") && !SD.mkdir("/")){
@@ -96,6 +107,9 @@ void setupServer() {
             if(uploadFile){
                 uploadFile.close();
                 Serial.printf("Upload End: %s, %u bytes\n", filename.c_str(), index+len);
+                uploadFile.close();
+                Serial.printf("Upload End: %s, %u bytes\n", filename.c_str(), index+len);
+                digitalWrite(LED_BLUE, LOW); // Turn Blue LED OFF
             }
         }
     });
@@ -106,6 +120,12 @@ void setupServer() {
 
 void setup() {
     Serial.begin(115200);
+    
+    pinMode(LED_BLUE, OUTPUT);
+    digitalWrite(LED_BLUE, LOW);
+
+    pinMode(LED_GREEN, OUTPUT);
+    digitalWrite(LED_GREEN, LOW);
     
     setupSD();
     setupAudio();
@@ -118,5 +138,11 @@ void setup() {
 
 void loop() {
     audio.loop(); 
+    
+    // Handle Green LED Blink
+    if (greenLedTimer > 0 && millis() > greenLedTimer) {
+        digitalWrite(LED_GREEN, LOW);
+        greenLedTimer = 0;
+    } 
     // Other non-blocking tasks
 }
