@@ -1,26 +1,9 @@
-import { Component } from '@angular/core';
+import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { HttpClient, HttpEventType, HttpHeaders, HttpParams } from '@angular/common/http';
+import { HttpClient } from '@angular/common/http'; // Still needed? Maybe not if fully moved
 import { FormsModule } from '@angular/forms';
-// @ts-ignore
-import * as jsmediatags from 'jsmediatags/dist/jsmediatags.min.js';
-
-interface SongFile {
-  file: File;
-  title: string;
-  artist: string;
-  album: string;
-  cover?: string;
-  status: 'pending' | 'uploading' | 'done' | 'error';
-  progress?: number;
-  matchedSpotifyId?: string;
-}
-
-interface SpotifyTrack {
-  name: string;
-  artist: string;
-  id: string;
-}
+import { PlaylistService, PlaylistTrack } from '../../core/services/playlist.service';
+import { EspService } from '../../core/services/esp.service';
 
 @Component({
   selector: 'app-library-manager',
@@ -28,181 +11,100 @@ interface SpotifyTrack {
   imports: [CommonModule, FormsModule],
   templateUrl: './library-manager.html',
   styles: [`
-    .song-list { max-height: 60vh; overflow-y: auto; }
-    .cover-img { width: 50px; height: 50px; object-fit: cover; border-radius: 4px; }
-    .progress { height: 5px; }
+    .song-list { max-height: 75vh; overflow-y: auto; }
+    .cover-img { width: 40px; height: 40px; object-fit: cover; border-radius: 4px; }
+    .status-badge { width: 80px; text-align: center; }
   `]
 })
-export class LibraryManagerComponent {
-  songs: SongFile[] = [];
-  espIp: string = '192.168.4.1'; // Default AP IP
+export class LibraryManagerComponent implements OnInit {
+  playlist: PlaylistTrack[] = [];
+  espIp: string = '';
 
-  // Spotify Config
-  spotifyClientId: string = '';
-  spotifyClientSecret: string = '';
-  spotifyPlaylistId: string = '';
-  spotifyTracks: SpotifyTrack[] = [];
+  constructor(
+    private playlistService: PlaylistService,
+    private espService: EspService
+  ) { }
 
-  get matchPercentage(): number {
-    if (this.spotifyTracks.length === 0) return 0;
-    const matches = this.songs.filter(s => s.matchedSpotifyId).length;
-    return Math.round((matches / this.spotifyTracks.length) * 100);
+  ngOnInit() {
+    this.playlistService.playlist$.subscribe(list => {
+      this.playlist = list;
+    });
+    this.espIp = this.espService.getIp();
   }
 
-  constructor(private http: HttpClient) {
-    const savedId = localStorage.getItem('spotify_client_id');
-    const savedSecret = localStorage.getItem('spotify_client_secret');
-    if (savedId) this.spotifyClientId = savedId;
-    if (savedSecret) this.spotifyClientSecret = savedSecret;
+  updateIp() {
+    this.espService.setIp(this.espIp);
   }
 
-  onFilesSelected(event: any) {
-    const files = event.target.files;
-    if (files) {
-      for (let i = 0; i < files.length; i++) {
-        this.processFile(files[i]);
+  // File Linking Logic
+  triggerFileSelect(trackId: string) {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'audio/*';
+    input.onchange = (e: any) => {
+      const file = e.target.files[0];
+      if (file) {
+        this.playlistService.linkFile(trackId, file);
       }
+    };
+    input.click();
+  }
+
+  removeTrack(id: string) {
+    this.playlistService.removeTrack(id);
+  }
+
+  clearPlaylist() {
+    if (confirm('¿Borrar toda la lista?')) {
+      this.playlistService.clearPlaylist();
     }
   }
 
-  async processFile(file: File) {
-    if (!file.type.startsWith('audio/') && !file.name.endsWith('.mp3')) return;
-    const metadata = await this.readTags(file);
-    this.songs.push({
-      file: file,
-      title: metadata.title || file.name,
-      artist: metadata.artist || 'Unknown Artist',
-      album: metadata.album || 'Unknown Album',
-      cover: metadata.cover,
-      status: 'pending',
-      progress: 0
-    });
-    this.matchSongs();
-  }
+  async syncToEsp() {
+    this.updateIp(); // Ensure IP is current
 
-  async fetchSpotifyPlaylist() {
-    if (!this.spotifyClientId || !this.spotifyClientSecret || !this.spotifyPlaylistId) {
-      alert('Please fill in Client ID, Secret and Playlist!');
+    const tracksToUpload = this.playlist.filter(t => t.status === 'linked' && t.localFile);
+
+    if (tracksToUpload.length === 0) {
+      alert('No hay canciones listas para subir (vincula archivos MP3 primero).');
       return;
     }
 
-    // Save creds
-    localStorage.setItem('spotify_client_id', this.spotifyClientId);
-    localStorage.setItem('spotify_client_secret', this.spotifyClientSecret);
+    for (const track of tracksToUpload) {
+      if (!track.localFile) continue;
 
-    try {
-      // 1. Get Token
-      const body = new HttpParams()
-        .set('grant_type', 'client_credentials')
-        .set('client_id', this.spotifyClientId)
-        .set('client_secret', this.spotifyClientSecret);
+      // Filename: Artist - Title.mp3 (Sanitized)
+      const safeName = `${track.artist} - ${track.name}.mp3`.replace(/[^a-zA-Z0-9.\- ]/g, '');
 
-      const tokenRes: any = await this.http.post('https://accounts.spotify.com/api/token', body, {
-        headers: new HttpHeaders({ 'Content-Type': 'application/x-www-form-urlencoded' })
-      }).toPromise();
+      track.status = 'uploaded'; // Set to uploading/optimistic for now. Ideally should be 'uploading'
 
-      const token = tokenRes.access_token;
-
-      // 2. Parse Playlist ID from URL if needed
-      let id = this.spotifyPlaylistId;
-      if (id.includes('playlist/')) {
-        id = id.split('playlist/')[1].split('?')[0];
-      }
-
-      // 3. Get Tracks
-      const playlistRes: any = await this.http.get(`https://api.spotify.com/v1/playlists/${id}/tracks`, {
-        headers: new HttpHeaders({ 'Authorization': `Bearer ${token}` })
-      }).toPromise();
-
-      this.spotifyTracks = playlistRes.items.map((item: any) => ({
-        name: item.track.name,
-        artist: item.track.artists[0].name,
-        id: item.track.id
-      }));
-
-      console.log('Spotify Tracks Loaded:', this.spotifyTracks);
-      this.matchSongs();
-
-    } catch (e) {
-      console.error(e);
-      alert('Error fetching playlist. Check credentials.');
-    }
-  }
-
-  matchSongs() {
-    // Simple loose matching
-    this.songs.forEach(song => {
-      const match = this.spotifyTracks.find(t =>
-        t.name.toLowerCase().includes(song.title.toLowerCase()) ||
-        song.title.toLowerCase().includes(t.name.toLowerCase())
-      );
-      if (match) {
-        song.matchedSpotifyId = match.id;
-        // Optionally update metadata from Spotify?
-      }
-    });
-  }
-
-  readTags(file: File): Promise<{ title?: string, artist?: string, album?: string, cover?: string }> {
-    return new Promise((resolve) => {
-      jsmediatags.read(file as any, {
-        onSuccess: (tag: any) => {
-          let coverUrl = '';
-          if (tag.tags.picture) {
-            const { data, format } = tag.tags.picture;
-            let base64String = '';
-            for (let i = 0; i < data.length; i++) {
-              base64String += String.fromCharCode(data[i]);
+      // Subscribe to upload
+      try {
+        await new Promise<void>((resolve, reject) => {
+          this.espService.uploadFile(track.localFile!, safeName).subscribe({
+            next: (progress) => {
+              // Could update progress here if we added a progress field to PlaylistTrack
+              if (progress === 100) resolve();
+            },
+            error: (err) => {
+              console.error('Upload failed', err);
+              track.status = 'linked'; // Revert
+              resolve(); // Don't break loop, just skip
             }
-            coverUrl = `data:${format};base64,${window.btoa(base64String)}`;
-          }
-          resolve({
-            title: tag.tags.title,
-            artist: tag.tags.artist,
-            album: tag.tags.album,
-            cover: coverUrl
           });
-        },
-        onError: () => resolve({})
-      });
-    });
-  }
+        });
+        track.status = 'uploaded';
 
-  async uploadAll() {
-    for (const song of this.songs) {
-      if (song.status === 'pending') {
-        await this.uploadSong(song);
+        // Add to history
+        this.espService.addToHistory({
+          name: track.name,
+          artist: track.artist,
+          cover: track.cover
+        });
+
+      } catch (e) {
+        // Handled in error callback
       }
     }
-  }
-
-  uploadSong(song: SongFile): Promise<void> {
-    return new Promise((resolve) => {
-      song.status = 'uploading';
-      const formData = new FormData();
-      // Ensure filename is safe (remove special chars)
-      const safeName = song.file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-      formData.append('file', song.file, safeName);
-
-      this.http.post(`http://${this.espIp}/upload`, formData, {
-        reportProgress: true,
-        observe: 'events',
-        responseType: 'text'
-      }).subscribe({
-        next: (event: any) => {
-          if (event.type === HttpEventType.UploadProgress && event.total) {
-            song.progress = Math.round(100 * event.loaded / event.total);
-          } else if (event.type === HttpEventType.Response) {
-            song.status = 'done';
-            resolve();
-          }
-        },
-        error: (err) => {
-          console.error(err);
-          song.status = 'error';
-          resolve(); // Resolve anyway to continue queue
-        }
-      });
-    });
   }
 }

@@ -32,10 +32,43 @@ Este proyecto consiste en el desarrollo de un reproductor de música inalámbric
 
 ---
 
+## 🏁 Cómo ejecutar el proyecto
+
+### 1️⃣ Microcontrolador (ESP32)
+Este proyecto utiliza **PlatformIO** para el desarrollo del firmware.
+
+1. **Abrir el proyecto:**
+   - Abre la carpeta `microcontroller` en VS Code (asegúrate de tener la extensión de PlatformIO instalada).
+2. **Conectar el ESP32:**
+   - Conecta tu placa ESP32 al puerto USB.
+3. **Subir el código:**
+   - Haz clic en el icono de la "flecha" (Upload) en la barra inferior de PlatformIO.
+   - O corre el comando en la terminal:
+     ```bash
+     pio run --target upload
+     ```
+
+### 2️⃣ Web App (Angular)
+La interfaz web se encuentra en la carpeta `webapp`.
+
+1. **Instalar dependencias:**
+   ```bash
+   cd webapp
+   npm install
+   ```
+2. **Iniciar el servidor de desarrollo:**
+   ```bash
+   npm start
+   ```
+3. **Acceder a la app:**
+   - Abre tu navegador y ve a `http://localhost:4200/`.
+
+---
+
 ## 📂 Estructura del Repositorio
 
 /
-├── firmware/          # Código fuente en C++ para el ESP32
+├── microcontroller/   # Código fuente en C++ para el ESP32
 │   ├── src/           # Lógica principal y manejo de Bluetooth/SD
 │   └── lib/           # Librerías específicas (A2DP, Audio I2S)
 ├── webapp/            # Aplicación Frontend en Angular
